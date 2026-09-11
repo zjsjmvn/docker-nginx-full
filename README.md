@@ -57,3 +57,12 @@ docker run \
   nginxproxymanager/nginx-full:acmesh \
   acme.sh -h
 ```
+
+### Building locally
+
+```
+./scripts/bake.sh --load
+
+# to save time, only build for your architecture:
+./scripts/bake.sh --load --set '*.platform=linux/amd64'
+```

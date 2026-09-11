@@ -1,5 +1,3 @@
-ARG BASE_IMAGE=nginxproxymanager/nginx-full:latest
-
 #############
 # Certbot Builder
 #############
@@ -41,13 +39,13 @@ RUN pip install --no-cache-dir --upgrade 'pyopenssl==24.3.0' \
 #############
 # Final Image
 #############
-FROM $BASE_IMAGE AS final
-ARG BASE_IMAGE
+FROM base
+
 ARG TARGETPLATFORM
 
 LABEL maintainer="Jamie Curnow <jc@jc21.com>"
 
-RUN echo "Certbot: $BASE_IMAGE, ${TARGETPLATFORM:-linux/amd64}" >> /built-for-arch
+RUN echo "Certbot, ${TARGETPLATFORM:-linux/amd64}" >> /built-for-arch
 
 # OpenResty uses LuaJIT which has a dependency on GCC
 RUN apt-get update \
@@ -57,7 +55,7 @@ RUN apt-get update \
 	&& apt-get clean \
 	&& rm -rf /var/lib/apt/lists/*
 
-COPY ./files/.bashrc.certbot /root/.bashrc
+COPY ./docker/files/.bashrc.certbot /root/.bashrc
 
 # Copy certbot
 COPY --from=certbotbuilder /opt/certbot /opt/certbot

@@ -1,3 +1,7 @@
+def bakeArgs = ""
+def baseTag = "latest"
+def tagPrefix = ""
+
 pipeline {
 	triggers {
 		cron( env.BRANCH_NAME.equals('master') ? 'H 1 * * *' : '')
@@ -11,9 +15,7 @@ pipeline {
 		ansiColor('xterm')
 	}
 	environment {
-		DOCKERHUB_NAMESPACE = 'nginxproxymanager'
-		IMAGE               = 'nginx-full'
-		BUILDX_NAME         = "${IMAGE}_${GIT_BRANCH}"
+		BUILDX_NAME         = "nginxfull_${GIT_BRANCH}"
 		BRANCH_LOWER        = "${BRANCH_NAME.toLowerCase().replaceAll('/', '-')}"
 		OPENRESTY_VERSION   = '1.29.2.5'
 		LUA_VERSION         = '5.1.5'
@@ -22,21 +24,14 @@ pipeline {
 	stages {
 		stage('Environment') {
 			parallel {
-				stage('Master') {
-					when {
-						branch 'master'
-					}
+				stage('Docker Login') {
 					steps {
-						script {
-							env.BASE_IMAGE          = "${DOCKERHUB_NAMESPACE}/${IMAGE}:latest"
-							env.ACMESH_IMAGE        = "${DOCKERHUB_NAMESPACE}/${IMAGE}:acmesh"
-							env.CERTBOT_IMAGE       = "${DOCKERHUB_NAMESPACE}/${IMAGE}:certbot"
-							env.ACMESH_GOLANG_IMAGE = "${ACMESH_IMAGE}-golang"
-							env.CERTBOT_NODE_IMAGE  = "${CERTBOT_IMAGE}-node"
+						withCredentials([usernamePassword(credentialsId: 'jc21-dockerhub', passwordVariable: 'dpass', usernameVariable: 'duser')]) {
+							sh 'docker login -u "${duser}" -p "${dpass}"'
 						}
 					}
 				}
-				stage('Other') {
+				stage('!master') {
 					when {
 						not {
 							branch 'master'
@@ -44,55 +39,42 @@ pipeline {
 					}
 					steps {
 						script {
-							// Defaults to the Branch name, which is applies to all branches AND pr's
-							env.BASE_IMAGE          = "${DOCKERHUB_NAMESPACE}/${IMAGE}:github-${BRANCH_LOWER}"
-							env.ACMESH_IMAGE        = "${BASE_IMAGE}-acmesh"
-							env.CERTBOT_IMAGE       = "${BASE_IMAGE}-certbot"
-							env.ACMESH_GOLANG_IMAGE = "${ACMESH_IMAGE}-golang"
-							env.CERTBOT_NODE_IMAGE  = "${CERTBOT_IMAGE}-node"
+							baseTag = "github-${BRANCH_LOWER}"
+							tagPrefix = "github-${BRANCH_LOWER}-"
+							bakeArgs = "--var BASE_TAG=\"${baseTag}\" --var TAG_PREFIX=\"${tagPrefix}\""
 						}
 					}
 				}
 			}
 		}
-		stage('Base') {
-			environment {
-				BUILDX_NAME = "${IMAGE}_${GIT_BRANCH}_base"
+		stage('Build') {
+			when {
+				not {
+					anyOf {
+						equals expected: 'UNSTABLE', actual: currentBuild.result
+						branch pattern: ".*dependabot.*", comparator: "REGEXP"
+					}
+				}
 			}
 			steps {
-				withCredentials([usernamePassword(credentialsId: 'jc21-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-					sh 'docker login -u "${DOCKER_USER}" -p "${DOCKER_PASS}"'
-					sh './scripts/buildx.sh --push -f docker/Dockerfile -t "${BASE_IMAGE}"'
-				}
-				sh 'scripts/ci/test.sh "${BASE_IMAGE}"'
+				sh "./scripts/bake.sh --push ${bakeArgs}"
 			}
 		}
-		stage('Acme Clients') {
-			environment {
-				BUILDX_NAME = "${IMAGE}_${GIT_BRANCH}_node"
+		stage('Test') {
+			when {
+				not {
+					anyOf {
+						equals expected: 'UNSTABLE', actual: currentBuild.result
+						branch pattern: ".*dependabot.*", comparator: "REGEXP"
+					}
+				}
 			}
 			steps {
-				withCredentials([usernamePassword(credentialsId: 'jc21-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-					sh 'docker login -u "${DOCKER_USER}" -p "${DOCKER_PASS}"'
-					sh './scripts/buildx.sh --push -f docker/Dockerfile.acmesh -t "${ACMESH_IMAGE}"'
-					sh './scripts/buildx.sh --push -f docker/Dockerfile.certbot -t "${CERTBOT_IMAGE}"'
-				}
-				sh 'scripts/ci/test.sh "${ACMESH_IMAGE}"'
-				sh 'scripts/ci/test.sh "${CERTBOT_IMAGE}"'
-			}
-		}
-		stage('Dev Tools') {
-			environment {
-				BUILDX_NAME = "${IMAGE}_${GIT_BRANCH}_node"
-			}
-			steps {
-				withCredentials([usernamePassword(credentialsId: 'jc21-dockerhub', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
-					sh 'docker login -u "${DOCKER_USER}" -p "${DOCKER_PASS}"'
-					sh './scripts/buildx.sh --push -f docker/Dockerfile.acmesh-golang -t "${ACMESH_GOLANG_IMAGE}"'
-					sh './scripts/buildx.sh --push -f docker/Dockerfile.certbot-node -t "${CERTBOT_NODE_IMAGE}"'
-				}
-				sh 'scripts/ci/test.sh "${ACMESH_GOLANG_IMAGE}"'
-				sh 'scripts/ci/test.sh "${CERTBOT_NODE_IMAGE}"'
+				sh "scripts/ci/test.sh '${baseTag}'"
+				sh "scripts/ci/test.sh '${tagPrefix}certbot'"
+				sh "scripts/ci/test.sh '${tagPrefix}certbot-node'"
+				sh "scripts/ci/test.sh '${tagPrefix}acmesh'"
+				sh "scripts/ci/test.sh '${tagPrefix}acmesh-golang'"
 			}
 		}
 		stage('PR Comment') {
@@ -106,13 +88,13 @@ pipeline {
 			}
 			steps {
 				script {
-					def comment = pullRequest.comment("""Docker Image for build ${BUILD_NUMBER} is available on [DockerHub](https://cloud.docker.com/repository/docker/${DOCKERHUB_NAMESPACE}/${IMAGE}) as:
+					def comment = pullRequest.comment("""Docker Image for build ${BUILD_NUMBER} is available on [DockerHub](https://cloud.docker.com/repository/docker/nginxproxymanager/nginx-full) as:
 
-- `${BASE_IMAGE}`
-- `${CERTBOT_IMAGE}`
-- `${CERTBOT_NODE_IMAGE}`
-- `${ACMESH_IMAGE}`
-- `${ACMESH_GOLANG_IMAGE}`
+- `nginxproxymanager/nginx-full:${baseTag}`
+- `nginxproxymanager/nginx-full:${tagPrefix}certbot`
+- `nginxproxymanager/nginx-full:${tagPrefix}certbot-node`
+- `nginxproxymanager/nginx-full:${tagPrefix}acmesh`
+- `nginxproxymanager/nginx-full:${tagPrefix}acmesh-golang`
 """)
 				}
 			}

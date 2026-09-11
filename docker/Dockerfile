@@ -8,6 +8,10 @@ ARG OPENRESTY_VERSION
 ARG LUA_VERSION
 ARG LUAROCKS_VERSION
 
+ENV OPENRESTY_VERSION=${OPENRESTY_VERSION} \
+	LUA_VERSION=${LUA_VERSION} \
+	LUAROCKS_VERSION=${LUAROCKS_VERSION}
+
 RUN apt-get update \
 	&& apt-get install -y \
 	build-essential \
@@ -24,11 +28,11 @@ RUN apt-get update \
 	dos2unix
 
 # Lua build
-COPY ./scripts/build-lua.sh /tmp/build-lua.sh
+COPY ./docker/scripts/build-lua.sh /tmp/build-lua.sh
 RUN /tmp/build-lua.sh
 
 # Nginx build
-COPY ./scripts/build-openresty.sh /tmp/build-openresty.sh
+COPY ./docker/scripts/build-openresty.sh /tmp/build-openresty.sh
 RUN /tmp/build-openresty.sh
 
 #############
@@ -68,16 +72,16 @@ RUN apt-get update \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& rm -rf /var/cache/* /var/log/* /tmp/* /var/lib/dpkg/status-old
 
-COPY ./files/.bashrc /root/.bashrc
+COPY ./docker/files/.bashrc /root/.bashrc
 
 # Copy lua and luarocks builds from first image
 COPY --from=nginxbuilder /tmp/lua /tmp/lua
 COPY --from=nginxbuilder /tmp/luarocks /tmp/luarocks
-COPY ./scripts/install-lua.sh /tmp/install-lua.sh
+COPY ./docker/scripts/install-lua.sh /tmp/install-lua.sh
 
 # Copy openresty build from first image
 COPY --from=nginxbuilder /tmp/openresty /tmp/openresty
-COPY ./scripts/install-openresty.sh /tmp/install-openresty.sh
+COPY ./docker/scripts/install-openresty.sh /tmp/install-openresty.sh
 
 ARG OPENRESTY_VERSION
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \

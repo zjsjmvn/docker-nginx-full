@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 PROJ_DIR="$(cd "$SCRIPT_DIR/../../test" && pwd)"
 cd "$PROJ_DIR"
 
-export IMAGE="$1"
+export IMAGE_TAG="$1"
 export COMPOSE_PROJECT_NAME="nginxfulltest"
 
 # Colors
